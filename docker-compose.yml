@@ -1,0 +1,63 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:example@db:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build: .
+    command: celery -A app.tasks worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://postgres:example@db:5432/postgres
+      - REDIS_URL=redis://redis:6379/0
+      - C_FORCE_ROOT=1  # Разрешить выполнение от root
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.2-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  locust:
+    image: locustio/locust:2.34.1
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./locustfile.py:/locust/locustfile.py
+    command: -f /locust/locustfile.py --host http://web:8000
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  redis_data:
